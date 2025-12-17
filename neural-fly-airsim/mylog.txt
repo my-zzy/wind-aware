@@ -1,0 +1,30 @@
+工作日志
+
+2025.7.18
+会上说准备投9.15的ICRA，但是传统方法还没调好，新的方法还没尝试，也没有找到创新点
+
+7.21
+nerual-fly基本看懂了
+打算用姿态控制了，如果不考虑转动的风力的干扰，底层pwm太难调了
+
+7.22
+如果用姿态控制，没法跟踪转动的风力，这点nerual-fly没有考虑到
+论文里没给控制参数，只说了一点点调
+让ai写了对接airsim的代码
+
+7.24
+论文中网络的输入有pwm，但是却用的是姿态推力high-level控制指令，让人困惑
+如何获得pwm值
+doc上面讲如何增加api时给了一个例子，我一看就是我要的api，爽了
+
+7.29
+adaptive control can fly in the simulation, but has steady state error, which is strange
+
+7.30
+phi network control can run, but pitch angle is fixed at 30 degree
+
+8.5
+simulink verify the corretness of controller
+the problem is at the calculation of desired roll & pitch
+another problem: throttle is too big
+another todo: check the order of quaternions

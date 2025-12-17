@@ -1,0 +1,10 @@
+__pycache__/
+.vscode/
+logs_random_profiles/
+result_pinn_online/
+logs_test_fig8/
+test_wind/
+old_result/
+ablation_result/
+
+plots/test0903/
