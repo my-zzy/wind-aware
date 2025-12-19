@@ -2,6 +2,8 @@ import rospy
 import std_msgs.msg
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Twist
+
 from threading import Lock
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from sensor_msgs import point_cloud2
@@ -89,6 +91,8 @@ class YopoNet:
         self.best_traj_pub = rospy.Publisher("/yopo_net/best_traj_visual", PointCloud2, queue_size=1)
         self.all_trajs_pub = rospy.Publisher("/yopo_net/trajs_visual", PointCloud2, queue_size=1)
         self.ctrl_pub = rospy.Publisher(self.config["ctrl_topic"], PositionCommand, queue_size=1)
+        self.cmd_vel_pub = rospy.Publisher("/yopo/cmd_vel", Twist, queue_size=1)
+
         # ros subscriber
         self.odom_sub = rospy.Subscriber(self.config['odom_topic'], Odometry, self.callback_odometry, queue_size=1, tcp_nodelay=True)
         self.depth_sub = rospy.Subscriber(self.config['depth_topic'], Image, self.callback_depth, queue_size=1, tcp_nodelay=True)
@@ -238,7 +242,19 @@ class YopoNet:
             control_msg.yaw_dot = yaw_dot
             self.desire_init = True
             self.last_control_msg = control_msg
-            self.ctrl_pub.publish(control_msg)
+            #self.ctrl_pub.publish(control_msg)
+            # ========== NEW: publish cmd_vel for AirSim ==========
+            cmd_vel = Twist()
+            cmd_vel.linear.x = control_msg.velocity.x
+            cmd_vel.linear.y = control_msg.velocity.y
+            cmd_vel.linear.z = control_msg.velocity.z
+
+            # yaw 用 yaw_rate（AirSim 支持）
+            cmd_vel.angular.z = control_msg.yaw_dot
+
+            self.cmd_vel_pub.publish(cmd_vel)
+            # ====================================================
+
 
     def process_output(self, endstate_pred, score_pred, return_all_preds=False):
         endstate_pred = endstate_pred.reshape(9, self.lattice_primitive.traj_num).T
