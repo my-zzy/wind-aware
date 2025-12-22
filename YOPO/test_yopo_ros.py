@@ -390,8 +390,8 @@ if __name__ == "__main__":
     print("load weight from:", weight)
 
     settings = {'use_tensorrt': args.use_tensorrt,
-                'goal': [50, 0, 2],      # 目标点位置
-                'pitch_angle_deg': -0,   # 相机俯仰角(仰为负)
+                'goal': [50, 0, 2.5],      # 目标点位置
+                'pitch_angle_deg': -10,   # 相机俯仰角(仰为负)
                 'odom_topic': '/sim/odom',                   # 里程计话题
                 'depth_topic': '/depth_image',               # 深度图话题
                 'ctrl_topic': '/so3_control/pos_cmd',        # 控制器话题
