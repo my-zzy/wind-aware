@@ -1,11 +1,21 @@
 # Wind-aware Structured End-to-End Navigation Framework
 
+## Logs
 
-TODO:
+### 2025.12.31
+
++ neural-fly-airsim folder deleted. to find it, clone https://github.com/my-zzy/neural-fly-airsim
++ 暂时抛弃windows-wsl通信方案，转为纯windows+python方案
+
+
+
+## TODO:
 
 1. Windows(Airsim) - WSL(YOPO) 数据传输
 2. Airsim中的仿真数据发布 ros topic, 适配YOPO
 3. YOPO生成的轨迹通过话题给controller, 适配meta-pinn
+
+![structure](new_structure.png)
 
 ## Windows(Airsim) - WSL(YOPO) 数据传输搭建步骤如下：
 
@@ -34,3 +44,4 @@ TODO:
 `[INFO] Connected to AirSim`  
 `[INFO] Listening to /yopo/cmd_vel`  
 说明YOPO+AirSim已经调通  
+
