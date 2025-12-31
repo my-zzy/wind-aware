@@ -17,6 +17,34 @@
 
 ![structure](new_structure.png)
 
+```
+YOPO/
+├── yopo_airsim.py          ← Main entry (run this)
+├── requirements.txt        ← Updated (no ROS deps)
+├── train_yopo.py           ← Keep for training
+├── yopo_trt_transfer.py    ← Keep for TensorRT (optional)
+├── config/
+│   ├── __init__.py
+│   ├── config.py
+│   └── traj_opt.yaml
+├── policy/
+│   ├── __init__.py
+│   ├── poly_solver.py
+│   ├── primitive.py
+│   ├── state_transform.py
+│   ├── yopo_network.py
+│   ├── yopo_dataset.py     ← Only for training
+│   ├── yopo_trainer.py     ← Only for training
+│   └── models/
+│       ├── backbone.py
+│       ├── head.py
+│       └── resnet.py
+├── loss/                   ← Only for training
+└── saved/
+    └── YOPO_1/
+        └── epoch50.pth
+```
+
 ## Windows(Airsim) - WSL(YOPO) 数据传输搭建步骤如下：
 
 1. wsl中使用python3的ros环境（不要使用conda 下的python3）：  
