@@ -62,7 +62,7 @@ def wrap_to_pi(angle):
     """将角度限制在 [-pi, pi]"""
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
-def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5):
+def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5, kp=2.0):
     # Normalize velocity and goal directions
     vel_dir = vel_dir / (np.linalg.norm(vel_dir) + 1e-5)
     goal_dist = np.linalg.norm(goal_dir)
@@ -77,14 +77,16 @@ def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5):
     dir_des = vel_dir + weight * goal_dir
     yaw_desired = np.arctan2(dir_des[1], dir_des[0]) if goal_dist > 0.5 else last_yaw
 
-    # Yaw difference and limit
+    # P controller
     yaw_diff = wrap_to_pi(yaw_desired - last_yaw)
-    max_yaw_change = max_yaw_rate * np.pi * dt
-    yaw_change = np.clip(yaw_diff, -max_yaw_change, max_yaw_change)
+    yawdot = kp * yaw_diff
+    
+    # Limit yaw rate
+    max_yaw_change = max_yaw_rate * np.pi
+    # yawdot = np.clip(yawdot, -max_yaw_change, max_yaw_change)
 
-    # Updated yaw and yaw rate
-    yaw = wrap_to_pi(last_yaw + yaw_change)
-    yawdot = yaw_change / dt
+    # Updated yaw
+    yaw = wrap_to_pi(last_yaw + yawdot * dt)
 
     return yaw, yawdot
 

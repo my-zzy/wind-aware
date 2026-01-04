@@ -4,6 +4,7 @@ import time
 import torch
 import numpy as np
 import threading
+import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 
 from config.config import cfg
@@ -28,7 +29,7 @@ class YopoAirSim:
         # ---------- State Variables ----------
         self.odom_init = False
         self.last_yaw = 0.0
-        self.ctrl_dt = 0.02
+        self.ctrl_dt = 0.01  # 100Hz control loop for better yaw tracking
         self.ctrl_time = None
         self.desire_pos = None
         self.desire_vel = None
@@ -39,6 +40,23 @@ class YopoAirSim:
         self.lock = threading.Lock()
         self.arrive = False
         self.running = True
+        
+        # ---------- Command Buffer (for thread-safe AirSim calls) ----------
+        self.cmd_lock = threading.Lock()
+        self.pending_cmd = None  # (vx, vy, vz, yaw_dot)
+        self.print_counter = 0  # For periodic printing
+        
+        # ---------- Data Logging ----------
+        self.log_time = []
+        self.log_x = []
+        self.log_y = []
+        self.log_z = []
+        self.log_yaw = []
+        self.log_x_des = []
+        self.log_y_des = []
+        self.log_z_des = []
+        self.log_yaw_des = []
+        self.start_time = None
         
         # ---------- Helpers ----------
         self.state_transform = StateTransform()
@@ -54,7 +72,7 @@ class YopoAirSim:
         self.warm_up()
         
         # ---------- Connect AirSim ----------
-        self.client = airsim.MultirotorClient(ip=config['airsim_ip'])
+        self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
         self.client.enableApiControl(True)
         self.client.armDisarm(True)
@@ -91,11 +109,37 @@ class YopoAirSim:
                 # 3. YOPO Inference
                 self._yopo_inference(depth)
                 
+                # 4. Execute pending command (thread-safe AirSim call)
+                self._execute_pending_command()
+                
+                # 5. Print status at ~2Hz (every 50 iterations at 100Hz)
+                self.print_counter += 1
+                if self.print_counter >= 50:
+                    self.print_counter = 0
+                    yaw_deg = np.degrees(self.last_yaw)
+                    goal_dir = self.goal - self.position
+                    goal_yaw_deg = np.degrees(np.arctan2(goal_dir[1], goal_dir[0]))
+                    print(f"[POS] x:{self.position[0]:6.2f} y:{self.position[1]:6.2f} z:{self.position[2]:6.2f} | yaw:{yaw_deg:6.1f}° | goal_yaw:{goal_yaw_deg:6.1f}°")
+                
                 time.sleep(0.02)  # ~50Hz
                 
             except KeyboardInterrupt:
                 self.running = False
+                self.plot_data()
                 break
+    
+    def _execute_pending_command(self):
+        """Execute pending velocity command in main thread (AirSim is not thread-safe)"""
+        with self.cmd_lock:
+            if self.pending_cmd is not None:
+                vx, vy, vz, yaw_dot = self.pending_cmd
+                self.client.moveByVelocityAsync(
+                    vx, vy, vz,
+                    duration=self.ctrl_dt * 1.5,  # 1.5x for smooth transition without delay
+                    drivetrain=airsim.DrivetrainType.MaxDegreeOfFreedom,
+                    yaw_mode=airsim.YawMode(is_rate=True, yaw_or_rate=np.degrees(yaw_dot))
+                )
+                self.pending_cmd = None
     
     # ==================== Sensor Functions ====================
     def _get_depth_image(self):
@@ -136,12 +180,14 @@ class YopoAirSim:
         self.velocity = np.array([vel.x_val, vel.y_val, vel.z_val])
         self.orientation = np.array([ori.x_val, ori.y_val, ori.z_val, ori.w_val])
         
+        # Always update last_yaw from actual drone state to prevent drift
+        ypr = R.from_quat(self.orientation).as_euler('ZYX', degrees=False)
+        self.last_yaw = ypr[0]
+        
         if not self.odom_init:
             self.desire_pos = self.position.copy()
             self.desire_vel = self.velocity.copy()
             self.desire_acc = np.zeros(3)
-            ypr = R.from_quat(self.orientation).as_euler('ZYX', degrees=False)
-            self.last_yaw = ypr[0]
             self.odom_init = True
         
         # Check arrival
@@ -221,7 +267,7 @@ class YopoAirSim:
     
     # ==================== Control Loop ====================
     def _control_loop(self):
-        """Control loop running in separate thread"""
+        """Control loop running in separate thread - computes commands only"""
         while self.running:
             if self.ctrl_time is None or self.ctrl_time > self.traj_time:
                 time.sleep(self.ctrl_dt)
@@ -256,15 +302,26 @@ class YopoAirSim:
                 # Calculate yaw
                 goal_dir = self.goal - self.desire_pos
                 yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt)
-                self.last_yaw = yaw
+                # Note: last_yaw is now updated from actual drone state in _update_odometry
                 
-                # Send command to AirSim (NED: negate z)
-                self.client.moveByVelocityAsync(
-                    vx, vy, -vz,
-                    duration=self.ctrl_dt,
-                    drivetrain=airsim.DrivetrainType.MaxDegreeOfFreedom,
-                    yaw_mode=airsim.YawMode(is_rate=True, yaw_or_rate=np.degrees(yaw_dot))
-                )
+                # Queue command for main thread (NED: negate z)
+                with self.cmd_lock:
+                    self.pending_cmd = (vx, vy, -vz, yaw_dot)
+                
+                # Log data
+                if self.start_time is None:
+                    self.start_time = time.time()
+                self.log_time.append(time.time() - self.start_time)
+                self.log_x.append(self.position[0])
+                self.log_y.append(self.position[1])
+                self.log_z.append(self.position[2])
+                self.log_yaw.append(np.degrees(self.last_yaw))
+                self.log_x_des.append(self.desire_pos[0])
+                self.log_y_des.append(self.desire_pos[1])
+                self.log_z_des.append(self.desire_pos[2])
+                goal_dir = self.goal - self.desire_pos
+                yaw_des = np.degrees(np.arctan2(goal_dir[1], goal_dir[0]))
+                self.log_yaw_des.append(yaw_des)
             
             time.sleep(self.ctrl_dt)
     
@@ -274,6 +331,56 @@ class YopoAirSim:
         obs = torch.zeros((1, 9), dtype=torch.float32, device=self.device)
         obs = self.state_transform.prepare_input(obs)
         self.policy(depth, obs)
+    
+    def plot_data(self):
+        """Plot logged data in 4 subplots"""
+        if len(self.log_time) == 0:
+            print("No data to plot")
+            return
+        
+        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+        fig.suptitle('Flight Data', fontsize=14)
+        
+        # X position
+        axes[0, 0].plot(self.log_time, self.log_x, 'b-', label='Actual')
+        axes[0, 0].plot(self.log_time, self.log_x_des, 'r--', label='Desired')
+        axes[0, 0].set_xlabel('Time (s)')
+        axes[0, 0].set_ylabel('X (m)')
+        axes[0, 0].set_title('X Position')
+        axes[0, 0].legend()
+        axes[0, 0].grid(True)
+        
+        # Y position
+        axes[0, 1].plot(self.log_time, self.log_y, 'b-', label='Actual')
+        axes[0, 1].plot(self.log_time, self.log_y_des, 'r--', label='Desired')
+        axes[0, 1].set_xlabel('Time (s)')
+        axes[0, 1].set_ylabel('Y (m)')
+        axes[0, 1].set_title('Y Position')
+        axes[0, 1].legend()
+        axes[0, 1].grid(True)
+        
+        # Z position
+        axes[1, 0].plot(self.log_time, self.log_z, 'b-', label='Actual')
+        axes[1, 0].plot(self.log_time, self.log_z_des, 'r--', label='Desired')
+        axes[1, 0].set_xlabel('Time (s)')
+        axes[1, 0].set_ylabel('Z (m)')
+        axes[1, 0].set_title('Z Position')
+        axes[1, 0].legend()
+        axes[1, 0].grid(True)
+        
+        # Yaw angle
+        axes[1, 1].plot(self.log_time, self.log_yaw, 'b-', label='Actual')
+        axes[1, 1].plot(self.log_time, self.log_yaw_des, 'r--', label='Desired')
+        axes[1, 1].set_xlabel('Time (s)')
+        axes[1, 1].set_ylabel('Yaw (deg)')
+        axes[1, 1].set_title('Yaw Angle')
+        axes[1, 1].legend()
+        axes[1, 1].grid(True)
+        
+        plt.tight_layout()
+        plt.savefig('flight_data.png', dpi=150)
+        print("Plot saved to flight_data.png")
+        plt.show()
 
 
 if __name__ == "__main__":
@@ -283,8 +390,8 @@ if __name__ == "__main__":
     weight = base_dir + "/saved/YOPO_1/epoch50.pth"
     
     settings = {
-        'airsim_ip': '172.16.26.6',  # Your AirSim IP
-        'goal': [50, 0, -3],          # Goal position (NED)
+        'airsim_ip': 'localhost',  # Your AirSim IP
+        'goal': [0, 50, -3],          # Goal position (NED)
         'pitch_angle_deg': -10,       # Camera pitch angle
         'plan_from_reference': False,
     }
