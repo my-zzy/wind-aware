@@ -62,7 +62,7 @@ def wrap_to_pi(angle):
     """将角度限制在 [-pi, pi]"""
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
-def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5, kp=2.0):
+def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, last_yaw_error=0.0, last_yaw_rate=0.0, max_yaw_rate=0.7, kp=4.0, kd=6.0):
     # Normalize velocity and goal directions
     vel_dir = vel_dir / (np.linalg.norm(vel_dir) + 1e-5)
     goal_dist = np.linalg.norm(goal_dir)
@@ -74,19 +74,28 @@ def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5, kp=2.0):
     weight = 6 * abs(delta_yaw) / np.pi  # weight ∈ [0,6]; equal weight at 30°, goal weight increases as delta_yaw grows
 
     # Desired direction and yaw
+    # weight = min(weight, 0.1)
+    # print(f"weight: {weight:.3f}")
     dir_des = vel_dir + weight * goal_dir
     yaw_desired = np.arctan2(dir_des[1], dir_des[0]) if goal_dist > 0.5 else last_yaw
 
-    # P controller
-    yaw_diff = wrap_to_pi(yaw_desired - last_yaw)
-    yawdot = kp * yaw_diff
+    # PD controller outputs angular acceleration
+    yaw_error = wrap_to_pi(yaw_desired - last_yaw)
+    yaw_error_dot = (yaw_error - last_yaw_error) / dt
+    yaw_ddot = kp * yaw_error + kd * yaw_error_dot  # angular acceleration
+    
+    # Integrate to get angular velocity
+    yaw_rate = last_yaw_rate + yaw_ddot * dt
     
     # Limit yaw rate
     max_yaw_change = max_yaw_rate * np.pi
-    # yawdot = np.clip(yawdot, -max_yaw_change, max_yaw_change)
+    # print(f"yaw rate, max yaw rate: {yaw_rate:.3f}, {max_yaw_change:.3f}")
+    # if abs(yaw_rate) > abs(max_yaw_change):
+    #     print("[Warning] yaw rate exceeds max yaw rate.")
+    yaw_rate = np.clip(yaw_rate, -max_yaw_change, max_yaw_change)
 
-    # Updated yaw
-    yaw = wrap_to_pi(last_yaw + yawdot * dt)
+    # Integrate to get yaw angle
+    yaw = wrap_to_pi(last_yaw + yaw_rate * dt)
 
-    return yaw, yawdot
+    return yaw, yaw_rate, yaw_error
 

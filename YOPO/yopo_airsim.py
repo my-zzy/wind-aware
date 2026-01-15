@@ -29,6 +29,8 @@ class YopoAirSim:
         # ---------- State Variables ----------
         self.odom_init = False
         self.last_yaw = 0.0
+        self.last_yaw_error = 0.0
+        self.last_yaw_rate = 0.0
         self.ctrl_dt = 0.01  # 100Hz control loop for better yaw tracking
         self.ctrl_time = None
         self.desire_pos = None
@@ -52,10 +54,14 @@ class YopoAirSim:
         self.log_y = []
         self.log_z = []
         self.log_yaw = []
+        self.log_pitch = []
+        self.log_roll = []
         self.log_x_des = []
         self.log_y_des = []
         self.log_z_des = []
         self.log_yaw_des = []
+        self.log_pitch_des = []
+        self.log_roll_des = []
         self.start_time = None
         
         # ---------- Helpers ----------
@@ -72,6 +78,7 @@ class YopoAirSim:
         self.warm_up()
         
         # ---------- Connect AirSim ----------
+        print("Connecting to airsim...")
         self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
         self.client.enableApiControl(True)
@@ -80,7 +87,7 @@ class YopoAirSim:
         
         # Takeoff
         self.client.takeoffAsync().join()
-        self.client.moveToZAsync(-3, 1).join()
+        self.client.moveToZAsync(-10, 3).join()
         time.sleep(1.0)
         
         print("YOPO AirSim Ready!")
@@ -112,16 +119,30 @@ class YopoAirSim:
                 # 4. Execute pending command (thread-safe AirSim call)
                 self._execute_pending_command()
                 
-                # 5. Print status at ~2Hz (every 50 iterations at 100Hz)
+                # 5. Display depth image at ~10Hz (every 5 iterations at 50Hz)
+                # Display depth image
+                depth_display = (depth[0, 0] * 255).astype(np.uint8)
+                depth_colored = cv2.applyColorMap(depth_display, cv2.COLORMAP_JET)
+                cv2.imshow('Depth Image', depth_colored)
+                cv2.waitKey(1)
+                
+                # Print status at ~2Hz (every 50 iterations at 100Hz)
                 self.print_counter += 1
                 if self.print_counter >= 50:
                     self.print_counter = 0
                     yaw_deg = np.degrees(self.last_yaw)
                     goal_dir = self.goal - self.position
                     goal_yaw_deg = np.degrees(np.arctan2(goal_dir[1], goal_dir[0]))
+                    
+                    # Check depth statistics
+                    depth_min = np.min(depth[0, 0])
+                    depth_max = np.max(depth[0, 0])
+                    depth_mean = np.mean(depth[0, 0])
                     print(f"[POS] x:{self.position[0]:6.2f} y:{self.position[1]:6.2f} z:{self.position[2]:6.2f} | yaw:{yaw_deg:6.1f}° | goal_yaw:{goal_yaw_deg:6.1f}°")
+                    # print(f"[DEPTH] min:{depth_min:.3f} max:{depth_max:.3f} mean:{depth_mean:.3f} | range: 0.0=near, 1.0=far(20m)")
+                    # cv2.waitKey(1)
                 
-                time.sleep(0.02)  # ~50Hz
+                time.sleep(0.05)  # ~50Hz
                 
             except KeyboardInterrupt:
                 self.running = False
@@ -160,13 +181,19 @@ class YopoAirSim:
             depth_array = cv2.resize(depth_array, (self.width, self.height), 
                                      interpolation=cv2.INTER_NEAREST)
         
-        # Normalize
+        # Normalize (same as training data: depth / max_depth_dist -> clip [0,1])
         depth_array = np.minimum(depth_array, self.max_dis) / self.max_dis
+        depth_array = np.clip(depth_array, 0.0, 1.0)
         
-        # Handle NaN
+        # Mask bottom part to ignore drone body (adjust crop_bottom if needed)
+        crop_bottom = int(self.height * 0.05)  # Mask bottom 15% of image
+        if crop_bottom > 0:
+            depth_array[-crop_bottom:, :] = 1.0  # Set to far distance
+        
+        # Handle NaN (use uint16 like training data for better precision)
         nan_mask = np.isnan(depth_array) | (depth_array < self.min_dis / self.max_dis)
-        interpolated = cv2.inpaint(np.uint8(depth_array * 255), np.uint8(nan_mask), 1, cv2.INPAINT_NS)
-        depth_array = interpolated.astype(np.float32) / 255.0
+        interpolated = cv2.inpaint(np.uint16(depth_array * 65535), np.uint8(nan_mask), 1, cv2.INPAINT_NS)
+        depth_array = interpolated.astype(np.float32) / 65535.0
         
         return depth_array.reshape(1, 1, self.height, self.width)
     
@@ -199,6 +226,10 @@ class YopoAirSim:
     @torch.inference_mode()
     def _yopo_inference(self, depth):
         """YOPO network inference"""
+        # Debug: check depth distribution
+        if self.print_counter % 50 == 0:
+            print(f"[DEPTH] min:{np.min(depth):.3f} max:{np.max(depth):.3f} mean:{np.mean(depth):.3f}")
+        
         # Prepare inputs
         depth_input = torch.from_numpy(depth).to(self.device, non_blocking=True)
         obs_norm = self._process_odom().to(self.device, non_blocking=True)
@@ -209,8 +240,12 @@ class YopoAirSim:
         endstate_pred = endstate_pred.cpu().numpy()
         score_pred = score_pred.cpu().numpy()
         
+        # Debug: check network output
+        if self.print_counter % 50 == 0:
+            print(f"[SCORE] min:{np.min(score_pred):.3f} max:{np.max(score_pred):.3f} best_action:{np.argmin(score_pred)}")
+        
         # Post-process
-        endstate, score = self._process_output(endstate_pred, score_pred)
+        endstate, score, action_id = self._process_output(endstate_pred, score_pred)
         
         # Transform to world frame
         endstate_c = endstate.reshape(-1, 3, 3).transpose(0, 2, 1)
@@ -218,23 +253,23 @@ class YopoAirSim:
         Rotation_wc = np.dot(Rotation_wb, self.Rotation_bc)
         endstate_w = np.matmul(Rotation_wc, endstate_c)
         
-        action_id = 0
+        # Use index 0 because _process_output already selected the best action
         with self.lock:
             start_pos = self.desire_pos if self.plan_from_reference else self.position
             start_vel = self.desire_vel if self.plan_from_reference else self.velocity
             
             self.optimal_poly_x = Poly5Solver(
                 start_pos[0], start_vel[0], self.desire_acc[0],
-                endstate_w[action_id, 0, 0] + start_pos[0],
-                endstate_w[action_id, 0, 1], endstate_w[action_id, 0, 2], self.traj_time)
+                endstate_w[0, 0, 0] + start_pos[0],
+                endstate_w[0, 0, 1], endstate_w[0, 0, 2], self.traj_time)
             self.optimal_poly_y = Poly5Solver(
                 start_pos[1], start_vel[1], self.desire_acc[1],
-                endstate_w[action_id, 1, 0] + start_pos[1],
-                endstate_w[action_id, 1, 1], endstate_w[action_id, 1, 2], self.traj_time)
+                endstate_w[0, 1, 0] + start_pos[1],
+                endstate_w[0, 1, 1], endstate_w[0, 1, 2], self.traj_time)
             self.optimal_poly_z = Poly5Solver(
                 start_pos[2], start_vel[2], self.desire_acc[2],
-                endstate_w[action_id, 2, 0] + start_pos[2],
-                endstate_w[action_id, 2, 1], endstate_w[action_id, 2, 2], self.traj_time)
+                endstate_w[0, 2, 0] + start_pos[2],
+                endstate_w[0, 2, 1], endstate_w[0, 2, 2], self.traj_time)
             self.ctrl_time = 0.0
     
     def _process_odom(self):
@@ -263,7 +298,7 @@ class YopoAirSim:
         lattice_id = self.lattice_primitive.traj_num - 1 - action_id
         endstate = self.state_transform.pred_to_endstate_cpu(
             endstate_pred[action_id, :][np.newaxis, :], lattice_id)
-        return endstate, score_pred[action_id]
+        return endstate, score_pred[action_id], action_id
     
     # ==================== Control Loop ====================
     def _control_loop(self):
@@ -299,14 +334,17 @@ class YopoAirSim:
                     self.optimal_poly_z.get_acceleration(self.ctrl_time)
                 ])
                 
-                # Calculate yaw
+                # Calculate yaw (PD controller outputs angular acceleration)
                 goal_dir = self.goal - self.desire_pos
-                yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt)
+                yaw, yaw_rate, yaw_error = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, 
+                                                          self.ctrl_dt, self.last_yaw_error, self.last_yaw_rate)
+                self.last_yaw_error = yaw_error
+                self.last_yaw_rate = yaw_rate
                 # Note: last_yaw is now updated from actual drone state in _update_odometry
                 
                 # Queue command for main thread (NED: negate z)
                 with self.cmd_lock:
-                    self.pending_cmd = (vx, vy, -vz, yaw_dot)
+                    self.pending_cmd = (vx, vy, -vz, yaw_rate)
                 
                 # Log data
                 if self.start_time is None:
@@ -315,13 +353,22 @@ class YopoAirSim:
                 self.log_x.append(self.position[0])
                 self.log_y.append(self.position[1])
                 self.log_z.append(self.position[2])
-                self.log_yaw.append(np.degrees(self.last_yaw))
+                
+                # Get actual pitch and roll
+                ypr = R.from_quat(self.orientation).as_euler('ZYX', degrees=True)
+                self.log_yaw.append(ypr[0])
+                self.log_pitch.append(ypr[1])
+                self.log_roll.append(ypr[2])
+                
                 self.log_x_des.append(self.desire_pos[0])
                 self.log_y_des.append(self.desire_pos[1])
                 self.log_z_des.append(self.desire_pos[2])
-                goal_dir = self.goal - self.desire_pos
-                yaw_des = np.degrees(np.arctan2(goal_dir[1], goal_dir[0]))
+                # Desired yaw based on actual trajectory direction (from velocity)
+                yaw_des = np.degrees(np.arctan2(self.desire_vel[1], self.desire_vel[0]))
                 self.log_yaw_des.append(yaw_des)
+                # Desired pitch/roll are 0 for level flight
+                self.log_pitch_des.append(0.0)
+                self.log_roll_des.append(0.0)
             
             time.sleep(self.ctrl_dt)
     
@@ -333,12 +380,12 @@ class YopoAirSim:
         self.policy(depth, obs)
     
     def plot_data(self):
-        """Plot logged data in 4 subplots"""
+        """Plot logged data in 6 subplots"""
         if len(self.log_time) == 0:
             print("No data to plot")
             return
         
-        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+        fig, axes = plt.subplots(3, 2, figsize=(12, 12))
         fig.suptitle('Flight Data', fontsize=14)
         
         # X position
@@ -377,10 +424,28 @@ class YopoAirSim:
         axes[1, 1].legend()
         axes[1, 1].grid(True)
         
+        # Pitch angle
+        axes[2, 0].plot(self.log_time, self.log_pitch, 'b-', label='Actual')
+        axes[2, 0].plot(self.log_time, self.log_pitch_des, 'r--', label='Desired')
+        axes[2, 0].set_xlabel('Time (s)')
+        axes[2, 0].set_ylabel('Pitch (deg)')
+        axes[2, 0].set_title('Pitch Angle')
+        axes[2, 0].legend()
+        axes[2, 0].grid(True)
+        
+        # Roll angle
+        axes[2, 1].plot(self.log_time, self.log_roll, 'b-', label='Actual')
+        axes[2, 1].plot(self.log_time, self.log_roll_des, 'r--', label='Desired')
+        axes[2, 1].set_xlabel('Time (s)')
+        axes[2, 1].set_ylabel('Roll (deg)')
+        axes[2, 1].set_title('Roll Angle')
+        axes[2, 1].legend()
+        axes[2, 1].grid(True)
+        
         plt.tight_layout()
         plt.savefig('flight_data.png', dpi=150)
         print("Plot saved to flight_data.png")
-        plt.show()
+        # plt.show()
 
 
 if __name__ == "__main__":
@@ -391,7 +456,7 @@ if __name__ == "__main__":
     
     settings = {
         'airsim_ip': 'localhost',  # Your AirSim IP
-        'goal': [0, 50, -3],          # Goal position (NED)
+        'goal': [250, 250, -10],          # Goal position (NED)
         'pitch_angle_deg': -10,       # Camera pitch angle
         'plan_from_reference': False,
     }
