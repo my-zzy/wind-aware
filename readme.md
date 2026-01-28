@@ -3,15 +3,6 @@
 ## Logs
 ### 2026.1.28
 + airsim_yopo_runner.py在密集障碍中避障
-### 2025.12.31
-
-+ neural-fly-airsim folder deleted. to find it, clone https://github.com/my-zzy/neural-fly-airsim
-+ 暂时抛弃windows-wsl通信方案，转为纯windows+python方案
-
-### 2026.1.4
-
-+ yopo_airsim.py 跑通，纯py方案
-+ TODO：修改仿真场景验证避障功能，改控制器
 
 ### 2026.1.15
 
@@ -19,6 +10,15 @@
 + 调试pd参数可以使用test_yaw_controller.py
 + 可以实时打印深度图像，log增加欧拉角输出
 + 当障碍物在视野中间时，决策会左右来回跳，最终撞上障碍物，也可能是回正太早，修改calculate_yaw中的weight
+
+### 2026.1.4
+
++ yopo_airsim.py 跑通，纯py方案
++ TODO：修改仿真场景验证避障功能，改控制器
+### 2025.12.31
+
++ neural-fly-airsim folder deleted. to find it, clone https://github.com/my-zzy/neural-fly-airsim
++ 暂时抛弃windows-wsl通信方案，转为纯windows+python方案
 
 ## TODO:
 
