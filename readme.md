@@ -3,6 +3,9 @@
 ## Logs
 ### 2026.1.28
 + airsim_yopo_runner.py在密集障碍中避障
++ 障碍物分布如下图
+![structure](obstacle_distribution1.png)
+![structure](obstacle_distribution2.png)
 
 ### 2026.1.15
 
