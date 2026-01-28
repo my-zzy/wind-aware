@@ -91,28 +91,47 @@ YOPO/
 {
   "SettingsVersion": 1.2,
   "SimMode": "Multirotor",
+
+  "RpcEnabled": true,
+  "RpcServerPort": 41451,
+  "LocalHostIp": "0.0.0.0",
+  
+  "ViewMode": "FlyWithMe",
+
   "Vehicles": {
     "Drone1": {
       "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
       "Cameras": {
-        "front_depth": {
-          "CaptureSettings": [
-            {
-              "ImageType": 2,
-              "Width": 160,
-              "Height": 96
-            }
-          ],
-          "X": 0.3,
+        "0": {
+          "X": 0.5,
           "Y": 0.0,
-          "Z": -0.15,
-          "Pitch": -10,
+          "Z": -0.1,
+          "Pitch": 0,
           "Roll": 0,
           "Yaw": 0,
-          "FOV_Degrees": 90
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 160,
+              "Height": 96,
+              "FOV_Degrees": 90
+            },
+            {
+              "ImageType": 3,
+              "Width": 160,
+              "Height": 96,
+              "FOV_Degrees": 90
+            }
+          ]
         }
       }
     }
+  },
+
+  "Weather": {
+    "Enable": true
   }
 }
+
 ```
