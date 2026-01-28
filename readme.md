@@ -1,7 +1,8 @@
 # Wind-aware Structured End-to-End Navigation Framework
 
 ## Logs
-
+### 2026.1.28
++ airsim_yopo_runner.py在密集障碍中避障
 ### 2025.12.31
 
 + neural-fly-airsim folder deleted. to find it, clone https://github.com/my-zzy/neural-fly-airsim
