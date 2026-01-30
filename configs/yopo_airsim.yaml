@@ -1,0 +1,89 @@
+# ===== YOPO Planner required by yopo_runner.py =====
+yopo_dir: "E:/wind-aware-main/YOPO"
+checkpoint_path: "E:/wind-aware-main/YOPO/saved/YOPO_1/epoch50.pth"
+
+yopo_goal_length: 10.0      # 来自 YOPO cfg["goal_length"]
+subgoal_radius: 8.0
+segment_time: 1.7
+
+# ================= AirSim =================
+airsim_ip: "127.0.0.1"
+vehicle_name: "Drone1"
+
+# ================= Goal =================
+goal: [20, 3, -3]
+goal_reached_m: 2.0
+target_z_ned: -3.0
+
+# ================= Depth =================
+image_height: 96
+image_width: 160
+depth_max_m: 20.0
+
+# ================= Control =================
+control_dt: 0.10
+command_duration_s: 0.35
+trajectory_lookahead_s: 0.20
+max_vel_xy: 4.0
+max_vel_norm: 6.0
+yopo_test_velocity: 6.0
+
+# ================= Safety shield =================
+enable_safety_shield: true
+safety_slow_depth_m: 2.5
+safety_stop_depth_m: 1.2
+safety_climb_m: 0.8
+
+shield_alpha: 0.85
+shield_hold_steps: 12
+shield_dir_gap_m: 0.6
+shield_emergency_vy: 1.2
+shield_repulse_ref_m: 3.0
+shield_k_rep: 1.0
+shield_vy_cap: 1.0
+shield_min_scale: 0.30
+shield_corridor_vy_mul: 0.35
+shield_corridor_vx_mul: 0.55
+shield_slow_d: 2.8
+shield_stop_d: 1.2
+
+# ================= Fallback =================
+fallback_bad_steps: 6
+fallback_speed: 1.5
+
+# ================= ROI =================
+min_depth_roi_x0: 0.35
+min_depth_roi_x1: 0.65
+min_depth_roi_y0: 0.20
+min_depth_roi_y1: 0.80
+
+# ================= Visualization =================
+vis_depth: true
+vis_trajs: true
+traj_vis_samples: 8
+vis_scale: 3.0
+vis_show_text: false
+vis_topk_trajs: 3
+vis_draw_endpoints: true
+live_topdown_history: 350
+live_topdown_size: [360, 320]
+live_topdown_margin: 18
+
+# ================= Camera =================
+h_fov_deg: 90.0
+v_fov_deg: 60.0
+
+# ================= Debug =================
+verbose_step: true
+
+# ================= Takeoff/Land =================
+takeoff_timeout_s: 8.0
+land_on_goal: true
+
+# ================= Plot =================
+plot_on_exit: true
+plot_show: true
+plot_dir: "./yopo_logs"
+
+# ================= Planner =================
+subgoal_radius: 8.0

@@ -1,0 +1,32 @@
+
+airsim_ip: "127.0.0.1"
+vehicle_name: "Drone1"
+
+dt: 0.01
+total_time: 60.0
+freeze_T: 5.0
+
+# wind
+wind_profile: "10mps"          # must exist in PROFILES_ALL (envs/wind_profiles.py)
+wind_condition_name: "10wind"  # used for warm-start file warm_start/10wind.npz
+
+# trajectory: fig8/circle/ellipse/random
+traj: "fig8"
+random_seed: 0
+
+# metapinn
+feature_keys: "v,q,pwm"
+mp_load: "E:\\wind-aware-main\\Meta-PINN\\saved_models\\meta_pinn_offline\\meta_pinn_best.pth"
+mp_scaler: "E:\\wind-aware-main\\Meta-PINN\\saved_models\\meta_pinn_offline\\x_scaler.npz"
+
+enable_meta: true
+enable_online_learn: true
+update_every: 10
+lr: 0.001
+warm_dir: "warm_start"
+
+hover_throttle: 0.594
+feedforward_g: 0.3
+
+out_dir: "result"
+save_csv: true
